@@ -1,3 +1,4 @@
+
 import sys
 import argparse
 import requests
@@ -107,6 +108,7 @@ class Search:
             vul_results = requests.get(search_url) #Get request to pull details of the vulnerability
             parsed_results = BeautifulSoup(vul_results.text, 'html.parser') #Parsing the results with BeautifulSoup
             other_info = parsed_results.find(id="other-info") #Find the other-info section from the parsed results and creating a reference to them. This section holds in information on the vuln we are interested in
+            cvss_metrics = parsed_results.find(id='cvss-score')
 
             #Find all the information from the other-info section and place the information we are interested in into the appropriate place in the vulnObject
             for li in other_info.find_all('li'):
@@ -193,8 +195,59 @@ class Search:
                     else:
                         return e
 
-
             searchDict[urlList[num]] = vuln
+
+        for item in searchDict:
+            if debug:
+                print(str(searchDict[item]))
+
+            if (searchDict[item].cveID == 'Unknown'):
+                if debug:
+                    print(searchDict[item].cveID)
+                    print(cvss_metrics)
+
+                if (searchDict[item].severityMetric != 0.0):
+                    temp = searchDict[item].severityMetric
+                    searchDict[item].setSeverityMetric(float(searchDict[item].severityMetric)/10.0)
+
+                    if debug:
+                        print('Divided SM ({}) by 10 = {}\n'.format(temp, searchDict[item].severityMetric))
+
+                else:
+                    try:
+                        base = re.findall('>[0-9].[0-9]<',str(cvss_metrics))
+                        base = re.sub('[<,>]', '', str(base[0]))
+                        searchDict[item].setSeverityMetric(float(base))
+
+                        if debug:
+                            print('\nBase {}'.format(base))
+                    except:
+                        temp = searchDict[item].severityMetric
+                        searchDict[item].setSeverityMetric(float(searchDict[item].severityMetric) / 10.0)
+
+            else:
+                cve = re.findall('CVE-[0-9]*-[0-9]*', searchDict[item].cveID)
+                temp = str(cve)
+                try:
+                    if (len(cve) != 0):
+                        cveResult = requests.get('https://cve.circl.lu/api/cve/' + str(cve[0]))
+                        cve = json.loads(cveResult.text)
+                        searchDict[item].setSeverityMetric(cve['cvss'])
+
+                        if debug:
+                            print('Length: {}'.format(len(cve)))
+                            print('CVE = {}'.format(temp))
+
+                    else:
+                        temp = searchDict[item].severityMetric
+                        searchDict[item].setSeverityMetric(float(searchDict[item].severityMetric)/10.0)
+                except:
+                    temp = searchDict[item].severityMetric
+                    searchDict[item].setSeverityMetric(float(searchDict[item].severityMetric) / 10.0)
+
+                    if debug:
+                        print('Divided SM ({}) by 10 = {}\n'.format(temp, searchDict[item].severityMetric))
+                        print(cve)
 
         return searchDict
 
@@ -325,87 +378,10 @@ class Search:
 
                         break
 
-        ## new code after taking results ##
-        #print("Total number of vulns scraped: {}\n".format(len(results)))
-        temp_Results = eval(json.dumps(results, default=lambda o: o.__dict__))
-        finalresults = []
-        for item in temp_Results:
-            temp = {key:temp_Results[item][key] for key in temp_Results[item] if key in ["datePublic", "dateLastUpdated", "vulnID", "severityMetric", "search_url"]}
-            finalresults.append(temp)
-        return finalresults
-        ## end of new code##
+
+        return results
 
 
-## new code ##
-def check_overlap(dategroup, date):
-    overlapps = []
-    for everydate in dategroup:
-        if int(date[0]) <= int(everydate[1]) and int(everydate[0]) <= int(date[1]):
-            temp = sorted([int(date[0]), int(date[1]), int(everydate[0]), int(everydate[1])])
-            overlapps.append([temp[1], temp[2], everydate[2], everydate[3]])
-    return overlapps
-
-def get_combined(row, overlaps):
-    extemp = {key:val for key, val in row.items()}
-    tempseverities = []
-    temp = []
-    if overlaps:
-        for overlap in overlaps:
-            tempseverities.append([overlap[2] + '-' + extemp["vulnID"], float('%.3f'%((float(row["severityMetric"]) + float(overlap[3]))/2)), ''])
-            combined = {key:val for key, val in row.items()}
-            combined["start"] = overlap[0]
-            combined["end"] = overlap[1]
-            combined["id"] = overlap[2] + '-' + extemp["vulnID"]
-            #combined["id"] = " "
-            combined["lane"] = 2
-            temp.append(combined)
-    return temp, tempseverities
-
-def compute(results):
-    count = 0
-    final = []
-    severities = []
-    ven1_dates = []
-    combined_severities = []
-    for vendor in results:
-        temp = []
-        for row in vendor:
-            if row["datePublic"] == row["dateLastUpdated"]:
-                startdate = datetime.datetime.fromtimestamp(
-                    int(row["datePublic"]))
-                enddate = startdate + datetime.timedelta(days=10)
-                row["dateLastUpdated"] = enddate.timestamp()
-            if count == 0:
-                ven1_dates.append([row["datePublic"], row["dateLastUpdated"], row["vulnID"], row["severityMetric"]])
-            else:
-                overlaps = check_overlap(ven1_dates, [row["datePublic"], row["dateLastUpdated"]])
-                combined,temp_sever = get_combined(row.copy(),overlaps)
-                if combined:
-                    final.extend(combined)
-                    combined_severities.extend(temp_sever)
-            temp.append([row["vulnID"],float(row["severityMetric"]), row["search_url"]])
-            row["start"] = row["datePublic"]
-            row["end"] = row["dateLastUpdated"]
-            row["id"] = row["vulnID"]
-            row["lane"] = count
-            del row["datePublic"]
-            del row["dateLastUpdated"]
-            del row["vulnID"]
-            final.append(row)
-        count += 1
-        try:
-            temp.sort(key=lambda t: t[1], reverse=True)
-        except TypeError:
-            pass
-        severities.append(temp)
-    if combined_severities:
-        for s in combined_severities:
-            print(s)
-        combined_severities.sort(key=lambda t: t[1], reverse=True)
-        severities.append(combined_severities)
-    return final, severities
-
-## end of new code##
 if __name__ == "__main__":
     #Parsing the command line for arguments
     parser = argparse.ArgumentParser()
@@ -414,6 +390,5 @@ if __name__ == "__main__":
     parser.add_argument('product', type=str)
     parser.add_argument('searchMax', type=str)
     args = parser.parse_args()
-    #print(args)
 
     Search().run(args.debug, args.vendor, args.product, args.searchMax)

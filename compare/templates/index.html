@@ -91,10 +91,25 @@ stroke:#6699cc; /* choose a color for the border */
 		                <option value={{ vendor }}>{{ vendor }}</option>
                       {% endfor %}
                   </datalist>
+             <select id="StartDate" name="StartDate">
+                 {% for year in Years %}
+		                <option value={{ year }}>{{ year }}</option>
+                 {% endfor %}
+             </select>
+            <select id="EndDate" name="EndDate">
+                 {% for year in Years %}
+		                <option value={{ year }}>{{ year }}</option>
+                 {% endfor %}
+             </select>
             <input type="submit" value="Submit" class="btn btn-success"  />
             </form>
+
 </h4>
     </div>
+<script type="text/javascript">
+
+</script>
+
 
 <script type="text/javascript">
 		//data
@@ -102,8 +117,8 @@ stroke:#6699cc; /* choose a color for the border */
 		var lanes = {{ vendors|safe }},
 			laneLength = lanes.length,
 			items = {{ data|safe }}
-			timeBegin = 0,
-			timeEnd = 1999999999.0;
+			timeBegin = 0;
+			timeEnd = 1999999999;
 		</script>
 		<script type="text/javascript">
 		var m = [20, 15, 15, 300], //top right bottom left
@@ -206,10 +221,16 @@ stroke:#6699cc; /* choose a color for the border */
 		mini.append("g").selectAll(".miniLabels")
 			.data(items)
 			.enter().append("text")
-			.text(function(d) {return d.id;})
+			.text(function(d) {
+        if( d.severityMetric > 30 ){
+          return d.id
+        }
+
+      })
 			.attr("x", function(d) {return x(d.start);})
 			.attr("y", function(d) {return y2(d.lane + .5);})
 			.attr("dy", ".5ex");
+      // .attr("transform", `translate(738px) rotate(90deg)`);
 
 		//brush
 		var brush = d3.svg.brush()
